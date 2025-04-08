@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -32,13 +33,23 @@ type Item struct {
 	Labels      []string  // ラベル
 	Repository  string    // リポジトリ名
 	Involvement string    // 関与タイプ（created, assigned, commented）
+	Body        string    // 本文
+	Comments    []Comment // コメント
+}
+
+// コメント情報を格納する構造体
+type Comment struct {
+	Author    string    // コメント投稿者
+	Body      string    // コメント本文
+	CreatedAt time.Time // 投稿日時
+	UpdatedAt time.Time // 更新日時
 }
 
 func main() {
 	// コマンドライン引数の解析
 	var startDateStr, endDateStr, outputFile string
 	var defaultEndDate = time.Now().Format("2006-01-02")
-	var defaultStartDate = time.Now().AddDate(0, -1, 0).Format("2006-01-02")
+	var defaultStartDate = time.Now().AddDate(0, 0, -3).Format("2006-01-02") // デフォルトで3日前
 
 	flag.StringVar(&startDateStr, "from", defaultStartDate, "開始日 (YYYY-MM-DD形式)")
 	flag.StringVar(&endDateStr, "to", defaultEndDate, "終了日 (YYYY-MM-DD形式)")
@@ -127,6 +138,11 @@ func fetchAllItems(client *api.RESTClient, username string, dateRange DateRange)
 	}
 	for i := range createdIssues {
 		createdIssues[i].Involvement = "created"
+		// Issue詳細情報の取得（本文とコメント）
+		err = fetchIssueDetails(client, ctx, &createdIssues[i])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Issueの詳細取得に失敗しました（ID: %d）: %v\n", createdIssues[i].Number, err)
+		}
 	}
 	allItems = append(allItems, createdIssues...)
 
@@ -137,6 +153,11 @@ func fetchAllItems(client *api.RESTClient, username string, dateRange DateRange)
 	}
 	for i := range assignedIssues {
 		assignedIssues[i].Involvement = "assigned"
+		// Issue詳細情報の取得（本文とコメント）
+		err = fetchIssueDetails(client, ctx, &assignedIssues[i])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Issueの詳細取得に失敗しました（ID: %d）: %v\n", assignedIssues[i].Number, err)
+		}
 	}
 	allItems = append(allItems, assignedIssues...)
 
@@ -147,6 +168,11 @@ func fetchAllItems(client *api.RESTClient, username string, dateRange DateRange)
 	}
 	for i := range commentedIssues {
 		commentedIssues[i].Involvement = "commented"
+		// Issue詳細情報の取得（本文とコメント）
+		err = fetchIssueDetails(client, ctx, &commentedIssues[i])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Issueの詳細取得に失敗しました（ID: %d）: %v\n", commentedIssues[i].Number, err)
+		}
 	}
 	allItems = append(allItems, commentedIssues...)
 
@@ -157,6 +183,11 @@ func fetchAllItems(client *api.RESTClient, username string, dateRange DateRange)
 	}
 	for i := range createdPRs {
 		createdPRs[i].Involvement = "created"
+		// PR詳細情報の取得（本文とコメント）
+		err = fetchPRDetails(client, ctx, &createdPRs[i])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "PRの詳細取得に失敗しました（ID: %d）: %v\n", createdPRs[i].Number, err)
+		}
 	}
 	allItems = append(allItems, createdPRs...)
 
@@ -167,6 +198,11 @@ func fetchAllItems(client *api.RESTClient, username string, dateRange DateRange)
 	}
 	for i := range reviewedPRs {
 		reviewedPRs[i].Involvement = "reviewed"
+		// PR詳細情報の取得（本文とコメント）
+		err = fetchPRDetails(client, ctx, &reviewedPRs[i])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "PRの詳細取得に失敗しました（ID: %d）: %v\n", reviewedPRs[i].Number, err)
+		}
 	}
 	allItems = append(allItems, reviewedPRs...)
 
@@ -231,9 +267,6 @@ func fetchIssues(client *api.RESTClient, ctx context.Context, username, involvem
 			if err == nil {
 				break
 			}
-			
-			fmt.Fprintf(os.Stderr, "API呼び出しに失敗しました (リトライ %d/%d): %v\n", 
-				retryCount+1, maxRetries, err)
 			
 			// リトライ前に待機
 			time.Sleep(2 * time.Second)
@@ -351,9 +384,6 @@ func fetchPRs(client *api.RESTClient, ctx context.Context, username, involvement
 			if err == nil {
 				break
 			}
-			
-			fmt.Fprintf(os.Stderr, "API呼び出しに失敗しました (リトライ %d/%d): %v\n", 
-				retryCount+1, maxRetries, err)
 			
 			// リトライ前に待機
 			time.Sleep(2 * time.Second)
@@ -564,8 +594,234 @@ func writeItemDetails(file *os.File, item Item) {
 	if len(item.Labels) > 0 {
 		fmt.Fprintf(file, "  - ラベル: %s\n", strings.Join(item.Labels, ", "))
 	}
+
+	// 本文も出力
+	if item.Body != "" {
+		// 本文が長い場合は適切に省略
+		body := item.Body
+		if len(body) > 300 {
+			body = body[:300] + "..."
+		}
+		fmt.Fprintf(file, "  - 本文:\n    %s\n", strings.ReplaceAll(body, "\n", "\n    "))
+	}
+	
+	// コメントの出力
+	if len(item.Comments) > 0 {
+		fmt.Fprintf(file, "  - コメント (%d件):\n", len(item.Comments))
+		
+		// コメント数が多い場合は制限
+		maxComments := 5
+		if len(item.Comments) > maxComments {
+			fmt.Fprintf(file, "    (最初の%d件のみ表示)\n", maxComments)
+		}
+		
+		count := 0
+		for _, comment := range item.Comments {
+			if count >= maxComments {
+				break
+			}
+			
+			// コメント本文が長い場合は適切に省略
+			body := comment.Body
+			if len(body) > 200 {
+				body = body[:200] + "..."
+			}
+			
+			fmt.Fprintf(file, "    - %s (%s):\n      %s\n", 
+				comment.Author, 
+				comment.CreatedAt.Format("2006-01-02"),
+				strings.ReplaceAll(body, "\n", "\n      "))
+			
+			count++
+		}
+	}
 	
 	fmt.Fprintln(file, "")
+}
+
+// Issueの詳細（本文とコメント）を取得する
+func fetchIssueDetails(client *api.RESTClient, ctx context.Context, item *Item) error {
+	// リポジトリ名とIssue番号を抽出
+	repoPath := getRepoPathFromURL(item.Repository)
+	if repoPath == "" {
+		return fmt.Errorf("リポジトリパスの抽出に失敗しました: %s", item.Repository)
+	}
+	
+	// Issueの詳細情報を取得
+	var issueDetail struct {
+		Body string `json:"body"`
+	}
+	
+	issueURL := fmt.Sprintf("repos/%s/issues/%d", repoPath, item.Number)
+	
+	// リトライ機能を使用
+	var err error
+	maxRetries := 3
+	for retryCount := 0; retryCount < maxRetries; retryCount++ {
+		err = client.Get(issueURL, &issueDetail)
+		if err == nil {
+			break
+		}
+		
+		// リトライ前に待機
+		time.Sleep(2 * time.Second)
+	}
+	
+	if err != nil {
+		return fmt.Errorf("Issueの詳細取得に失敗しました: %w", err)
+	}
+	
+	item.Body = issueDetail.Body
+	
+	// コメントを取得
+	return fetchComments(client, ctx, item, fmt.Sprintf("repos/%s/issues/%d/comments", repoPath, item.Number))
+}
+
+// PRの詳細（本文とコメント）を取得する
+func fetchPRDetails(client *api.RESTClient, ctx context.Context, item *Item) error {
+	// リポジトリ名とPR番号を抽出
+	repoPath := getRepoPathFromURL(item.Repository)
+	if repoPath == "" {
+		return fmt.Errorf("リポジトリパスの抽出に失敗しました: %s", item.Repository)
+	}
+	
+	// PRの詳細情報を取得（PRはIssueのエンドポイントでも取得可能）
+	var prDetail struct {
+		Body string `json:"body"`
+	}
+	
+	prURL := fmt.Sprintf("repos/%s/pulls/%d", repoPath, item.Number)
+	
+	// リトライ機能を使用
+	var err error
+	maxRetries := 3
+	for retryCount := 0; retryCount < maxRetries; retryCount++ {
+		err = client.Get(prURL, &prDetail)
+		if err == nil {
+			break
+		}
+		
+		// リトライ前に待機
+		time.Sleep(2 * time.Second)
+	}
+	
+	if err != nil {
+		return fmt.Errorf("PRの詳細取得に失敗しました: %w", err)
+	}
+	
+	item.Body = prDetail.Body
+	
+	// コメントを取得
+	issueCommentsURL := fmt.Sprintf("repos/%s/issues/%d/comments", repoPath, item.Number)
+	err = fetchComments(client, ctx, item, issueCommentsURL)
+	if err != nil {
+		return err
+	}
+	
+	// PRレビューコメントも取得
+	reviewCommentsURL := fmt.Sprintf("repos/%s/pulls/%d/comments", repoPath, item.Number)
+	return fetchReviewComments(client, ctx, item, reviewCommentsURL)
+}
+
+// コメントを取得する共通関数
+func fetchComments(client *api.RESTClient, ctx context.Context, item *Item, commentsURL string) error {
+	var comments []struct {
+		User struct {
+			Login string `json:"login"`
+		} `json:"user"`
+		Body      string    `json:"body"`
+		CreatedAt time.Time `json:"created_at"`
+		UpdatedAt time.Time `json:"updated_at"`
+	}
+	
+	// リトライ機能を使用
+	var err error
+	maxRetries := 3
+	for retryCount := 0; retryCount < maxRetries; retryCount++ {
+		err = client.Get(commentsURL, &comments)
+		if err == nil {
+			break
+		}
+		
+		// リトライ前に待機
+		time.Sleep(2 * time.Second)
+	}
+	
+	if err != nil {
+		return fmt.Errorf("コメントの取得に失敗しました: %w", err)
+	}
+	
+	// コメントをItem構造体に追加
+	for _, c := range comments {
+		item.Comments = append(item.Comments, Comment{
+			Author:    c.User.Login,
+			Body:      c.Body,
+			CreatedAt: c.CreatedAt,
+			UpdatedAt: c.UpdatedAt,
+		})
+	}
+	
+	return nil
+}
+
+// PRレビューコメントを取得する関数
+func fetchReviewComments(client *api.RESTClient, ctx context.Context, item *Item, reviewCommentsURL string) error {
+	var reviewComments []struct {
+		User struct {
+			Login string `json:"login"`
+		} `json:"user"`
+		Body      string    `json:"body"`
+		CreatedAt time.Time `json:"created_at"`
+		UpdatedAt time.Time `json:"updated_at"`
+	}
+	
+	// リトライ機能を使用
+	var err error
+	maxRetries := 3
+	for retryCount := 0; retryCount < maxRetries; retryCount++ {
+		err = client.Get(reviewCommentsURL, &reviewComments)
+		if err == nil {
+			break
+		}
+		
+		// リトライ前に待機
+		time.Sleep(2 * time.Second)
+	}
+	
+	if err != nil {
+		return fmt.Errorf("レビューコメントの取得に失敗しました: %w", err)
+	}
+	
+	// レビューコメントをItem構造体に追加
+	for _, rc := range reviewComments {
+		item.Comments = append(item.Comments, Comment{
+			Author:    rc.User.Login,
+			Body:      rc.Body,
+			CreatedAt: rc.CreatedAt,
+			UpdatedAt: rc.UpdatedAt,
+		})
+	}
+	
+	return nil
+}
+
+// リポジトリURLからパスを抽出する関数
+func getRepoPathFromURL(repoURL string) string {
+	// まずリポジトリURL形式を確認
+	if strings.HasPrefix(repoURL, "http") {
+		// URLからパスを抽出（例: https://github.com/owner/repo → owner/repo）
+		u, err := url.Parse(repoURL)
+		if err != nil {
+			return ""
+		}
+		path := strings.TrimPrefix(u.Path, "/")
+		return path
+	} else if strings.Contains(repoURL, "/") {
+		// すでにowner/repo形式の場合はそのまま返す
+		return repoURL
+	}
+	
+	return ""
 }
 
 // For more examples of using go-gh, see:
