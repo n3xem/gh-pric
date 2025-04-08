@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
@@ -41,104 +40,6 @@ func (c *Client) GetUsername() (string, error) {
 	}
 	
 	return userInfo.Login, nil
-}
-
-// FetchAllItems は指定したユーザーの全ての項目（PR、Issue）を取得します
-func (c *Client) FetchAllItems(username string, dateRange model.DateRange) ([]model.Item, error) {
-	var allItems []model.Item
-	ctx := context.Background()
-
-	// Retrieve created Issues
-	createdIssues, err := c.FetchIssues(ctx, username, "created", dateRange)
-	if err != nil {
-		return nil, err
-	}
-	for i := range createdIssues {
-		createdIssues[i].Involvement = "created"
-		// Retrieve Issue details (body and comments)
-		err = c.FetchIssueDetails(ctx, &createdIssues[i])
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to retrieve details for Issue (ID: %d): %v\n", createdIssues[i].Number, err)
-		}
-	}
-	allItems = append(allItems, createdIssues...)
-
-	// Retrieve assigned Issues
-	assignedIssues, err := c.FetchIssues(ctx, username, "assigned", dateRange)
-	if err != nil {
-		return nil, err
-	}
-	for i := range assignedIssues {
-		assignedIssues[i].Involvement = "assigned"
-		// Retrieve Issue details (body and comments)
-		err = c.FetchIssueDetails(ctx, &assignedIssues[i])
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to retrieve details for Issue (ID: %d): %v\n", assignedIssues[i].Number, err)
-		}
-	}
-	allItems = append(allItems, assignedIssues...)
-
-	// Retrieve commented Issues
-	commentedIssues, err := c.FetchIssues(ctx, username, "commented", dateRange)
-	if err != nil {
-		return nil, err
-	}
-	for i := range commentedIssues {
-		commentedIssues[i].Involvement = "commented"
-		// Retrieve Issue details (body and comments)
-		err = c.FetchIssueDetails(ctx, &commentedIssues[i])
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to retrieve details for Issue (ID: %d): %v\n", commentedIssues[i].Number, err)
-		}
-	}
-	allItems = append(allItems, commentedIssues...)
-
-	// Retrieve created PRs
-	createdPRs, err := c.FetchPRs(ctx, username, "created", dateRange)
-	if err != nil {
-		return nil, err
-	}
-	for i := range createdPRs {
-		createdPRs[i].Involvement = "created"
-		// Retrieve PR details (body and comments)
-		err = c.FetchPRDetails(ctx, &createdPRs[i])
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to retrieve details for PR (ID: %d): %v\n", createdPRs[i].Number, err)
-		}
-	}
-	allItems = append(allItems, createdPRs...)
-
-	// Retrieve assigned PRs
-	assignedPRs, err := c.FetchPRs(ctx, username, "assigned", dateRange)
-	if err != nil {
-		return nil, err
-	}
-	for i := range assignedPRs {
-		assignedPRs[i].Involvement = "assigned"
-		// Retrieve PR details (body and comments)
-		err = c.FetchPRDetails(ctx, &assignedPRs[i])
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to retrieve details for PR (ID: %d): %v\n", assignedPRs[i].Number, err)
-		}
-	}
-	allItems = append(allItems, assignedPRs...)
-
-	// Retrieve reviewed PRs
-	reviewedPRs, err := c.FetchPRs(ctx, username, "reviewed", dateRange)
-	if err != nil {
-		return nil, err
-	}
-	for i := range reviewedPRs {
-		reviewedPRs[i].Involvement = "reviewed"
-		// Retrieve PR details (body and comments)
-		err = c.FetchPRDetails(ctx, &reviewedPRs[i])
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to retrieve details for PR (ID: %d): %v\n", reviewedPRs[i].Number, err)
-		}
-	}
-	allItems = append(allItems, reviewedPRs...)
-
-	return allItems, nil
 }
 
 // FetchIssues はGitHub APIからIssueを取得します
