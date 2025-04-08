@@ -56,6 +56,7 @@ func main() {
 	flag.StringVar(&startDateStr, "from", defaultStartDate, "開始日 (YYYY-MM-DD形式)")
 	flag.StringVar(&endDateStr, "to", defaultEndDate, "終了日 (YYYY-MM-DD形式)")
 	flag.StringVar(&outputFile, "output", "github-activity.txt", "出力ファイル名")
+	flag.StringVar(&outputFile, "o", "github-activity.txt", "出力ファイル名 (--outputのエイリアス)")
 	flag.StringVar(&commentIgnoreUsers, "comment-ignore", "", "出力に含めないコメントのユーザー名（カンマ区切りで複数指定可能）")
 	flag.StringVar(&outputFormat, "output-format", "md", "出力フォーマット (md または json)")
 	flag.Parse()
