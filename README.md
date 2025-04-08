@@ -1,98 +1,119 @@
 # gh-pric
 
-GitHub CLIの拡張機能で、指定した期間に作成されたPRやIssueのうち、自分が関わったものの概要を一つのテキストファイルにまとめて出力します。
+A GitHub CLI extension that outputs a summary of your PRs and Issues created within a specified period into a single text file.
 
-## 機能
+## Features
 
-- 指定期間内のGitHub活動（PR/Issue）を取得
-- 以下の関与タイプでフィルタリング可能:
-  - 自分が作成したもの
-  - 自分がアサインされているもの
-  - 自分がコメントしたもの
-  - 自分がレビューしたもの（PRのみ）
-- 結果をテキストファイルに出力（Markdown形式）
-- GitHub API のレートリミットに配慮
+- Retrieves GitHub activities (PR/Issues) within a specified period
+- Can filter by the following involvement types:
+  - Items you created
+  - Items assigned to you
+  - Items you commented on
+  - Items you reviewed (PRs only)
+- Outputs results to a text file (Markdown or JSON format)
+- Respects GitHub API rate limits
+- Can retrieve comment details
 
-## インストール
+## Installation
 
-GitHub CLI (`gh`) がインストールされていることを確認してから:
+After ensuring GitHub CLI (`gh`) is installed:
 
 ```bash
 gh extension install n3xem/gh-pric
 ```
 
-## 使い方
+## Usage
 
-基本的な使い方:
+Basic usage:
 
 ```bash
 gh pric
 ```
 
-期間を指定して実行:
+Run with a specified period:
 
 ```bash
 gh pric --from 2023-01-01 --to 2023-12-31
 ```
 
-出力ファイル名を指定:
+Specify output filename:
 
 ```bash
 gh pric --output my-github-activity.txt
 ```
 
-すべてのオプションを指定:
+Specify JSON output format:
 
 ```bash
-gh pric --from 2023-01-01 --to 2023-12-31 --output my-github-activity.txt
+gh pric --output-format json
 ```
 
-## オプション
+Exclude comments from specific users:
 
-| オプション | デフォルト値 | 説明 |
-|------------|--------------|------|
-| `--from` | 1ヶ月前 | 開始日（YYYY-MM-DD形式） |
-| `--to` | 今日 | 終了日（YYYY-MM-DD形式） |
-| `--output` | github-activity.txt | 出力ファイル名 |
+```bash
+gh pric --comment-ignore user1,user2
+```
 
-## 出力例
+Using all options:
 
-生成されるファイルは以下のような構成になっています:
+```bash
+gh pric --from 2023-01-01 --to 2023-12-31 --output my-github-activity.txt --output-format md --comment-ignore bot1,bot2
+```
+
+## Options
+
+| Option | Default Value | Description |
+|--------|---------------|-------------|
+| `--from` | 3 days ago | Start date (YYYY-MM-DD format) |
+| `--to` | today | End date (YYYY-MM-DD format) |
+| `--output`, `-o` | github-activity.txt | Output filename |
+| `--output-format` | md | Output format (md or json) |
+| `--comment-ignore` | none | Usernames whose comments to exclude (comma-separated) |
+
+## Output Example
+
+The generated file will have the following structure:
 
 ```
-# GitHub活動レポート - username
-期間: 2023-01-01 から 2023-12-31 まで
+# GitHub Activity Report - username
+Period: 2023-01-01 to 2023-12-31
 
-## サマリー
-- 合計アイテム数: 42
-- PRの数: 25
-- Issueの数: 17
-- 作成したアイテム: 15
-- アサインされたアイテム: 10
-- コメントしたアイテム: 12
-- レビューしたアイテム: 5
+## Summary
+- Total items: 42
+- Number of PRs: 25
+- Number of Issues: 17
+- Created items: 15
+- Assigned items: 10
+- Commented items: 12
+- Reviewed items: 5
 
-## アイテム詳細
+## Item Details
 
-### 作成したアイテム
-- [PR #123] タイトル
+### Created Items
+- [PR #123] Title
   - URL: https://github.com/org/repo/pull/123
-  - リポジトリ: org/repo
-  - 状態: merged
-  - 作成日: 2023-03-15
-  - 更新日: 2023-03-20
-  - アサイン先: user1, user2
-  - ラベル: bug, enhancement
+  - Repository: org/repo
+  - Status: merged
+  - Created: 2023-03-15
+  - Updated: 2023-03-20
+  - Assignees: user1, user2
+  - Labels: bug, enhancement
+  - Body: PR content (truncated if too long)
+  - Comments (3):
+    - username (2023-03-16): Comment content (truncated if too long)
+    - ...
 
-...（以下略）
+...(continued)
 ```
 
-## 注意事項
+## Notes
 
-- 大量のリポジトリやアクティビティがある場合、GitHub APIのレート制限に達する可能性があります
-- 一度に取得できるデータ量には制限があります（最大10ページまで）
-- プライベートリポジトリの情報も取得するには、適切な権限が必要です
+- You may hit GitHub API rate limits if you have many repositories or activities
+- There are limits to how much data can be retrieved at once (maximum 10 pages)
+- Proper permissions are required to fetch private repository information
+- Only the first 5 comments are shown when there are many comments
+- Long body text and comments are automatically truncated
 
-## ライセンス
+## License
 
 MIT 
