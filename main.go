@@ -207,6 +207,21 @@ func fetchAllItems(client *api.RESTClient, username string, dateRange DateRange)
 	}
 	allItems = append(allItems, createdPRs...)
 
+	// アサインされたPRの取得
+	assignedPRs, err := fetchPRs(client, ctx, username, "assigned", dateRange)
+	if err != nil {
+		return nil, err
+	}
+	for i := range assignedPRs {
+		assignedPRs[i].Involvement = "assigned"
+		// PR詳細情報の取得（本文とコメント）
+		err = fetchPRDetails(client, ctx, &assignedPRs[i])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "PRの詳細取得に失敗しました（ID: %d）: %v\n", assignedPRs[i].Number, err)
+		}
+	}
+	allItems = append(allItems, assignedPRs...)
+
 	// レビューしたPRの取得
 	reviewedPRs, err := fetchPRs(client, ctx, username, "reviewed", dateRange)
 	if err != nil {
