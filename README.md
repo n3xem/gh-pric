@@ -2,6 +2,8 @@
 
 A GitHub CLI extension that outputs a summary of your PRs and Issues created within a specified period into a single text file.
 
+> The name "pric" comes from the Japanese word "ペライチ" (peraichi), which means "single page" or "one-pager". This extension creates a single consolidated file summarizing your GitHub activities.
+
 ## Features
 
 - Retrieves GitHub activities (PR/Issues) within a specified period
