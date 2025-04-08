@@ -48,13 +48,24 @@ type Comment struct {
 func main() {
 	// コマンドライン引数の解析
 	var startDateStr, endDateStr, outputFile string
+	var commentIgnoreUsers string
 	var defaultEndDate = time.Now().Format("2006-01-02")
 	var defaultStartDate = time.Now().AddDate(0, 0, -3).Format("2006-01-02") // デフォルトで3日前
 
 	flag.StringVar(&startDateStr, "from", defaultStartDate, "開始日 (YYYY-MM-DD形式)")
 	flag.StringVar(&endDateStr, "to", defaultEndDate, "終了日 (YYYY-MM-DD形式)")
 	flag.StringVar(&outputFile, "output", "github-activity.txt", "出力ファイル名")
+	flag.StringVar(&commentIgnoreUsers, "comment-ignore", "", "出力に含めないコメントのユーザー名（カンマ区切りで複数指定可能）")
 	flag.Parse()
+
+	// コメント除外ユーザーのリストを作成
+	var ignoreUsers []string
+	if commentIgnoreUsers != "" {
+		ignoreUsers = strings.Split(commentIgnoreUsers, ",")
+		for i, user := range ignoreUsers {
+			ignoreUsers[i] = strings.TrimSpace(user)
+		}
+	}
 
 	// 日付のパース
 	dateRange, err := parseDateRange(startDateStr, endDateStr)
@@ -89,6 +100,11 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "データの取得に失敗しました: %v\n", err)
 		os.Exit(1)
+	}
+
+	// 特定ユーザーのコメントをフィルタリング
+	if len(ignoreUsers) > 0 {
+		filterIgnoredUserComments(items, ignoreUsers)
 	}
 
 	// 結果の出力
@@ -822,6 +838,27 @@ func getRepoPathFromURL(repoURL string) string {
 	}
 	
 	return ""
+}
+
+// 特定ユーザーのコメントを除外する関数
+func filterIgnoredUserComments(items []Item, ignoreUsers []string) {
+	for i := range items {
+		var filteredComments []Comment
+		for _, comment := range items[i].Comments {
+			// ユーザーがignoreUsersリストにいなければコメントを残す
+			shouldKeep := true
+			for _, ignoreUser := range ignoreUsers {
+				if comment.Author == ignoreUser {
+					shouldKeep = false
+					break
+				}
+			}
+			if shouldKeep {
+				filteredComments = append(filteredComments, comment)
+			}
+		}
+		items[i].Comments = filteredComments
+	}
 }
 
 // For more examples of using go-gh, see:
