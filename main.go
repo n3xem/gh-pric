@@ -49,6 +49,7 @@ func main() {
 	// コマンドライン引数の解析
 	var startDateStr, endDateStr, outputFile string
 	var commentIgnoreUsers string
+	var outputFormat string
 	var defaultEndDate = time.Now().Format("2006-01-02")
 	var defaultStartDate = time.Now().AddDate(0, 0, -3).Format("2006-01-02") // デフォルトで3日前
 
@@ -56,7 +57,14 @@ func main() {
 	flag.StringVar(&endDateStr, "to", defaultEndDate, "終了日 (YYYY-MM-DD形式)")
 	flag.StringVar(&outputFile, "output", "github-activity.txt", "出力ファイル名")
 	flag.StringVar(&commentIgnoreUsers, "comment-ignore", "", "出力に含めないコメントのユーザー名（カンマ区切りで複数指定可能）")
+	flag.StringVar(&outputFormat, "output-format", "md", "出力フォーマット (md または json)")
 	flag.Parse()
+
+	// 出力フォーマットのバリデーション
+	if outputFormat != "md" && outputFormat != "json" {
+		fmt.Fprintf(os.Stderr, "無効な出力フォーマットです: %s (md または json を指定してください)\n", outputFormat)
+		os.Exit(1)
+	}
 
 	// コメント除外ユーザーのリストを作成
 	var ignoreUsers []string
@@ -108,7 +116,7 @@ func main() {
 	}
 
 	// 結果の出力
-	err = writeResultsToFile(items, outputFile, username, dateRange)
+	err = writeResultsToFile(items, outputFile, username, dateRange, outputFormat)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ファイルへの書き込みに失敗しました: %v\n", err)
 		os.Exit(1)
@@ -502,24 +510,41 @@ func getInvolvementQuery(involvement string) string {
 }
 
 // 結果をファイルに書き込む
-func writeResultsToFile(items []Item, filename, username string, dateRange DateRange) error {
+func writeResultsToFile(items []Item, filename, username string, dateRange DateRange, format string) error {
 	file, err := os.Create(filename)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
+	// フォーマットに応じて出力
+	switch format {
+	case "json":
+		return writeJSONFormat(file, items)
+	case "md":
+		return writeMarkdownFormat(file, items, username, dateRange)
+	default:
+		return fmt.Errorf("未対応の出力フォーマット: %s", format)
+	}
+}
+
+// JSON形式で出力
+func writeJSONFormat(file *os.File, items []Item) error {
+	jsonData, err := json.MarshalIndent(items, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = file.Write(jsonData)
+	return err
+}
+
+// マークダウン形式で出力
+func writeMarkdownFormat(file *os.File, items []Item, username string, dateRange DateRange) error {
 	// ヘッダー情報
 	fmt.Fprintf(file, "# GitHub活動レポート - %s\n", username)
 	fmt.Fprintf(file, "期間: %s から %s まで\n\n", 
 		dateRange.StartDate.Format("2006-01-02"), 
 		dateRange.EndDate.Format("2006-01-02"))
-
-	// JSON形式で詳細データを保存（必要に応じてフォーマット変更可能）
-	jsonData, err := json.MarshalIndent(items, "", "  ")
-	if err != nil {
-		return err
-	}
 
 	// サマリーを作成
 	fmt.Fprintf(file, "## サマリー\n")
@@ -602,9 +627,6 @@ func writeResultsToFile(items []Item, filename, username string, dateRange DateR
 			}
 		}
 	}
-
-	// 生データ（必要に応じて削除可能）
-	fmt.Fprintf(file, "\n## 生データ（JSON形式）\n```json\n%s\n```\n", string(jsonData))
 
 	return nil
 }
