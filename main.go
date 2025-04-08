@@ -108,143 +108,149 @@ func main() {
 	fmt.Printf("Results saved to %s\n", outputFile)
 }
 
-// fetchAllItems は指定したユーザーの全ての項目（PR、Issue）を取得します
+// fetchAllItems retrieves all items (PRs, Issues) for the specified user
 func fetchAllItems(client *github.Client, username string, dateRange model.DateRange) ([]model.Item, error) {
 	var allItems []model.Item
 	ctx := context.Background()
-	
+
 	s := spinner.New(spinner.CharSets[9], 100*time.Millisecond)
 
 	// Retrieve created Issues
-	s.Suffix = " 作成したIssueを取得中..."
+	s.Suffix = " Retrieving created Issues..."
 	s.Start()
 	createdIssues, err := client.FetchIssues(ctx, username, "created", dateRange)
 	s.Stop()
 	if err != nil {
 		return nil, err
 	}
-	
-	s.Suffix = " 作成したIssueの詳細を取得中..."
-	s.Start()
+
 	for i := range createdIssues {
 		createdIssues[i].Involvement = "created"
 		// Retrieve Issue details (body and comments)
+		s.Suffix = fmt.Sprintf(" Retrieving details for created Issue #%d (%s)...",
+			createdIssues[i].Number, createdIssues[i].Repository)
+		s.Start()
 		err = client.FetchIssueDetails(ctx, &createdIssues[i])
+		s.Stop()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to retrieve details for Issue (ID: %d): %v\n", createdIssues[i].Number, err)
 		}
 	}
-	s.Stop()
 	allItems = append(allItems, createdIssues...)
 
 	// Retrieve assigned Issues
-	s.Suffix = " アサインされたIssueを取得中..."
+	s.Suffix = " Retrieving assigned Issues..."
 	s.Start()
 	assignedIssues, err := client.FetchIssues(ctx, username, "assigned", dateRange)
 	s.Stop()
 	if err != nil {
 		return nil, err
 	}
-	
-	s.Suffix = " アサインされたIssueの詳細を取得中..."
-	s.Start()
+
 	for i := range assignedIssues {
 		assignedIssues[i].Involvement = "assigned"
 		// Retrieve Issue details (body and comments)
+		s.Suffix = fmt.Sprintf(" Retrieving details for assigned Issue #%d (%s)...",
+			assignedIssues[i].Number, assignedIssues[i].Repository)
+		s.Start()
 		err = client.FetchIssueDetails(ctx, &assignedIssues[i])
+		s.Stop()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to retrieve details for Issue (ID: %d): %v\n", assignedIssues[i].Number, err)
 		}
 	}
-	s.Stop()
 	allItems = append(allItems, assignedIssues...)
 
 	// Retrieve commented Issues
-	s.Suffix = " コメントしたIssueを取得中..."
+	s.Suffix = " Retrieving commented Issues..."
 	s.Start()
 	commentedIssues, err := client.FetchIssues(ctx, username, "commented", dateRange)
 	s.Stop()
 	if err != nil {
 		return nil, err
 	}
-	
-	s.Suffix = " コメントしたIssueの詳細を取得中..."
-	s.Start()
+
 	for i := range commentedIssues {
 		commentedIssues[i].Involvement = "commented"
 		// Retrieve Issue details (body and comments)
+		s.Suffix = fmt.Sprintf(" Retrieving details for commented Issue #%d (%s)...",
+			commentedIssues[i].Number, commentedIssues[i].Repository)
+		s.Start()
 		err = client.FetchIssueDetails(ctx, &commentedIssues[i])
+		s.Stop()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to retrieve details for Issue (ID: %d): %v\n", commentedIssues[i].Number, err)
 		}
 	}
-	s.Stop()
 	allItems = append(allItems, commentedIssues...)
 
 	// Retrieve created PRs
-	s.Suffix = " 作成したPRを取得中..."
+	s.Suffix = " Retrieving created PRs..."
 	s.Start()
 	createdPRs, err := client.FetchPRs(ctx, username, "created", dateRange)
 	s.Stop()
 	if err != nil {
 		return nil, err
 	}
-	
-	s.Suffix = " 作成したPRの詳細を取得中..."
-	s.Start()
+
 	for i := range createdPRs {
 		createdPRs[i].Involvement = "created"
 		// Retrieve PR details (body and comments)
+		s.Suffix = fmt.Sprintf(" Retrieving details for created PR #%d (%s)...",
+			createdPRs[i].Number, createdPRs[i].Repository)
+		s.Start()
 		err = client.FetchPRDetails(ctx, &createdPRs[i])
+		s.Stop()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to retrieve details for PR (ID: %d): %v\n", createdPRs[i].Number, err)
 		}
 	}
-	s.Stop()
 	allItems = append(allItems, createdPRs...)
 
 	// Retrieve assigned PRs
-	s.Suffix = " アサインされたPRを取得中..."
+	s.Suffix = " Retrieving assigned PRs..."
 	s.Start()
 	assignedPRs, err := client.FetchPRs(ctx, username, "assigned", dateRange)
 	s.Stop()
 	if err != nil {
 		return nil, err
 	}
-	
-	s.Suffix = " アサインされたPRの詳細を取得中..."
-	s.Start()
+
 	for i := range assignedPRs {
 		assignedPRs[i].Involvement = "assigned"
 		// Retrieve PR details (body and comments)
+		s.Suffix = fmt.Sprintf(" Retrieving details for assigned PR #%d (%s)...",
+			assignedPRs[i].Number, assignedPRs[i].Repository)
+		s.Start()
 		err = client.FetchPRDetails(ctx, &assignedPRs[i])
+		s.Stop()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to retrieve details for PR (ID: %d): %v\n", assignedPRs[i].Number, err)
 		}
 	}
-	s.Stop()
 	allItems = append(allItems, assignedPRs...)
 
 	// Retrieve reviewed PRs
-	s.Suffix = " レビューしたPRを取得中..."
+	s.Suffix = " Retrieving reviewed PRs..."
 	s.Start()
 	reviewedPRs, err := client.FetchPRs(ctx, username, "reviewed", dateRange)
 	s.Stop()
 	if err != nil {
 		return nil, err
 	}
-	
-	s.Suffix = " レビューしたPRの詳細を取得中..."
-	s.Start()
+
 	for i := range reviewedPRs {
 		reviewedPRs[i].Involvement = "reviewed"
 		// Retrieve PR details (body and comments)
+		s.Suffix = fmt.Sprintf(" Retrieving details for reviewed PR #%d (%s)...",
+			reviewedPRs[i].Number, reviewedPRs[i].Repository)
+		s.Start()
 		err = client.FetchPRDetails(ctx, &reviewedPRs[i])
+		s.Stop()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to retrieve details for PR (ID: %d): %v\n", reviewedPRs[i].Number, err)
 		}
 	}
-	s.Stop()
 	allItems = append(allItems, reviewedPRs...)
 
 	return allItems, nil
