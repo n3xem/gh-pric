@@ -13,61 +13,61 @@ import (
 	"github.com/cli/go-gh/v2/pkg/api"
 )
 
-// 期間の設定用構造体
+// Struct for setting the date range
 type DateRange struct {
 	StartDate time.Time
 	EndDate   time.Time
 }
 
-// PRとIssueの情報を格納する構造体
+// Struct to hold information about PRs and Issues
 type Item struct {
-	Type        string    // "PR" または "Issue"
-	Number      int       // PR番号またはIssue番号
-	Title       string    // タイトル
+	Type        string    // "PR" or "Issue"
+	Number      int       // PR number or Issue number
+	Title       string    // Title
 	URL         string    // URL
-	State       string    // 状態（open, closed, merged）
-	CreatedAt   time.Time // 作成日時
-	UpdatedAt   time.Time // 更新日時
-	Author      string    // 作成者
-	Assignees   []string  // アサイン先
-	Labels      []string  // ラベル
-	Repository  string    // リポジトリ名
-	Involvement string    // 関与タイプ（created, assigned, commented）
-	Body        string    // 本文
-	Comments    []Comment // コメント
+	State       string    // State (open, closed, merged)
+	CreatedAt   time.Time // Creation date
+	UpdatedAt   time.Time // Update date
+	Author      string    // Author
+	Assignees   []string  // Assignees
+	Labels      []string  // Labels
+	Repository  string    // Repository name
+	Involvement string    // Involvement type (created, assigned, commented)
+	Body        string    // Body
+	Comments    []Comment // Comments
 }
 
-// コメント情報を格納する構造体
+// Struct to hold comment information
 type Comment struct {
-	Author    string    // コメント投稿者
-	Body      string    // コメント本文
-	CreatedAt time.Time // 投稿日時
-	UpdatedAt time.Time // 更新日時
+	Author    string    // Comment author
+	Body      string    // Comment body
+	CreatedAt time.Time // Date of posting
+	UpdatedAt time.Time // Update date
 }
 
 func main() {
-	// コマンドライン引数の解析
+	// Command line argument parsing
 	var startDateStr, endDateStr, outputFile string
 	var commentIgnoreUsers string
 	var outputFormat string
 	var defaultEndDate = time.Now().Format("2006-01-02")
-	var defaultStartDate = time.Now().AddDate(0, 0, -3).Format("2006-01-02") // デフォルトで3日前
+	var defaultStartDate = time.Now().AddDate(0, 0, -3).Format("2006-01-02") // Default is 3 days ago
 
-	flag.StringVar(&startDateStr, "from", defaultStartDate, "開始日 (YYYY-MM-DD形式)")
-	flag.StringVar(&endDateStr, "to", defaultEndDate, "終了日 (YYYY-MM-DD形式)")
-	flag.StringVar(&outputFile, "output", "github-activity.txt", "出力ファイル名")
-	flag.StringVar(&outputFile, "o", "github-activity.txt", "出力ファイル名 (--outputのエイリアス)")
-	flag.StringVar(&commentIgnoreUsers, "comment-ignore", "", "出力に含めないコメントのユーザー名（カンマ区切りで複数指定可能）")
-	flag.StringVar(&outputFormat, "output-format", "md", "出力フォーマット (md または json)")
+	flag.StringVar(&startDateStr, "from", defaultStartDate, "Start date (YYYY-MM-DD format)")
+	flag.StringVar(&endDateStr, "to", defaultEndDate, "End date (YYYY-MM-DD format)")
+	flag.StringVar(&outputFile, "output", "github-activity.txt", "Output file name")
+	flag.StringVar(&outputFile, "o", "github-activity.txt", "Output file name (alias for --output)")
+	flag.StringVar(&commentIgnoreUsers, "comment-ignore", "", "Usernames of comments to exclude from output (comma-separated for multiple)")
+	flag.StringVar(&outputFormat, "output-format", "md", "Output format (md or json)")
 	flag.Parse()
 
-	// 出力フォーマットのバリデーション
+	// Output format validation
 	if outputFormat != "md" && outputFormat != "json" {
-		fmt.Fprintf(os.Stderr, "無効な出力フォーマットです: %s (md または json を指定してください)\n", outputFormat)
+		fmt.Fprintf(os.Stderr, "Invalid output format: %s (please specify md or json)\n", outputFormat)
 		os.Exit(1)
 	}
 
-	// コメント除外ユーザーのリストを作成
+	// Create a list of users to ignore for comments
 	var ignoreUsers []string
 	if commentIgnoreUsers != "" {
 		ignoreUsers = strings.Split(commentIgnoreUsers, ",")
@@ -76,73 +76,73 @@ func main() {
 		}
 	}
 
-	// 日付のパース
+	// Parse dates
 	dateRange, err := parseDateRange(startDateStr, endDateStr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "日付の解析に失敗しました: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Failed to parse dates: %v\n", err)
 		os.Exit(1)
 	}
 
-	// GitHubクライアントの初期化
+	// Initialize GitHub client
 	client, err := api.DefaultRESTClient()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "GitHubクライアントの初期化に失敗しました: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Failed to initialize GitHub client: %v\n", err)
 		os.Exit(1)
 	}
 
-	// ユーザー情報の取得
+	// Retrieve user information
 	userInfo := struct {
 		Login string `json:"login"`
 	}{}
 	err = client.Get("user", &userInfo)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ユーザー情報の取得に失敗しました: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Failed to retrieve user information: %v\n", err)
 		os.Exit(1)
 	}
 
 	username := userInfo.Login
-	fmt.Printf("ユーザー '%s' のGitHub活動を取得しています...\n", username)
-	fmt.Printf("期間: %s から %s まで\n", dateRange.StartDate.Format("2006-01-02"), dateRange.EndDate.Format("2006-01-02"))
+	fmt.Printf("Retrieving GitHub activity for user '%s'...\n", username)
+	fmt.Printf("Period: %s to %s\n", dateRange.StartDate.Format("2006-01-02"), dateRange.EndDate.Format("2006-01-02"))
 
-	// データ取得
+	// Data retrieval
 	items, err := fetchAllItems(client, username, dateRange)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "データの取得に失敗しました: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Failed to retrieve data: %v\n", err)
 		os.Exit(1)
 	}
 
-	// 特定ユーザーのコメントをフィルタリング
+	// Filter comments from specific users
 	if len(ignoreUsers) > 0 {
 		filterIgnoredUserComments(items, ignoreUsers)
 	}
 
-	// 結果の出力
+	// Output results
 	err = writeResultsToFile(items, outputFile, username, dateRange, outputFormat)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ファイルへの書き込みに失敗しました: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Failed to write to file: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("結果を %s に保存しました\n", outputFile)
+	fmt.Printf("Results saved to %s\n", outputFile)
 }
 
-// 日付文字列をパースして期間を返す
+// Parse date strings and return the date range
 func parseDateRange(startStr, endStr string) (DateRange, error) {
 	startDate, err := time.Parse("2006-01-02", startStr)
 	if err != nil {
-		return DateRange{}, fmt.Errorf("開始日の解析に失敗しました: %w", err)
+		return DateRange{}, fmt.Errorf("Failed to parse start date: %w", err)
 	}
 
 	endDate, err := time.Parse("2006-01-02", endStr)
 	if err != nil {
-		return DateRange{}, fmt.Errorf("終了日の解析に失敗しました: %w", err)
+		return DateRange{}, fmt.Errorf("Failed to parse end date: %w", err)
 	}
 
-	// 終了日は23:59:59に設定
+	// Set end date to 23:59:59
 	endDate = endDate.Add(24*time.Hour - time.Second)
 
 	if endDate.Before(startDate) {
-		return DateRange{}, fmt.Errorf("終了日は開始日より後である必要があります")
+		return DateRange{}, fmt.Errorf("End date must be after start date")
 	}
 
 	return DateRange{
@@ -151,97 +151,97 @@ func parseDateRange(startStr, endStr string) (DateRange, error) {
 	}, nil
 }
 
-// GitHub APIからユーザーに関連するPRとIssueを取得
+// Retrieve PRs and Issues related to the user from the GitHub API
 func fetchAllItems(client *api.RESTClient, username string, dateRange DateRange) ([]Item, error) {
 	var allItems []Item
 	ctx := context.Background()
 
-	// 作成したIssueの取得
+	// Retrieve created Issues
 	createdIssues, err := fetchIssues(client, ctx, username, "created", dateRange)
 	if err != nil {
 		return nil, err
 	}
 	for i := range createdIssues {
 		createdIssues[i].Involvement = "created"
-		// Issue詳細情報の取得（本文とコメント）
+		// Retrieve Issue details (body and comments)
 		err = fetchIssueDetails(client, ctx, &createdIssues[i])
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Issueの詳細取得に失敗しました（ID: %d）: %v\n", createdIssues[i].Number, err)
+			fmt.Fprintf(os.Stderr, "Failed to retrieve details for Issue (ID: %d): %v\n", createdIssues[i].Number, err)
 		}
 	}
 	allItems = append(allItems, createdIssues...)
 
-	// アサインされたIssueの取得
+	// Retrieve assigned Issues
 	assignedIssues, err := fetchIssues(client, ctx, username, "assigned", dateRange)
 	if err != nil {
 		return nil, err
 	}
 	for i := range assignedIssues {
 		assignedIssues[i].Involvement = "assigned"
-		// Issue詳細情報の取得（本文とコメント）
+		// Retrieve Issue details (body and comments)
 		err = fetchIssueDetails(client, ctx, &assignedIssues[i])
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Issueの詳細取得に失敗しました（ID: %d）: %v\n", assignedIssues[i].Number, err)
+			fmt.Fprintf(os.Stderr, "Failed to retrieve details for Issue (ID: %d): %v\n", assignedIssues[i].Number, err)
 		}
 	}
 	allItems = append(allItems, assignedIssues...)
 
-	// コメントしたIssueの取得
+	// Retrieve commented Issues
 	commentedIssues, err := fetchIssues(client, ctx, username, "commented", dateRange)
 	if err != nil {
 		return nil, err
 	}
 	for i := range commentedIssues {
 		commentedIssues[i].Involvement = "commented"
-		// Issue詳細情報の取得（本文とコメント）
+		// Retrieve Issue details (body and comments)
 		err = fetchIssueDetails(client, ctx, &commentedIssues[i])
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Issueの詳細取得に失敗しました（ID: %d）: %v\n", commentedIssues[i].Number, err)
+			fmt.Fprintf(os.Stderr, "Failed to retrieve details for Issue (ID: %d): %v\n", commentedIssues[i].Number, err)
 		}
 	}
 	allItems = append(allItems, commentedIssues...)
 
-	// 作成したPRの取得
+	// Retrieve created PRs
 	createdPRs, err := fetchPRs(client, ctx, username, "created", dateRange)
 	if err != nil {
 		return nil, err
 	}
 	for i := range createdPRs {
 		createdPRs[i].Involvement = "created"
-		// PR詳細情報の取得（本文とコメント）
+		// Retrieve PR details (body and comments)
 		err = fetchPRDetails(client, ctx, &createdPRs[i])
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "PRの詳細取得に失敗しました（ID: %d）: %v\n", createdPRs[i].Number, err)
+			fmt.Fprintf(os.Stderr, "Failed to retrieve details for PR (ID: %d): %v\n", createdPRs[i].Number, err)
 		}
 	}
 	allItems = append(allItems, createdPRs...)
 
-	// アサインされたPRの取得
+	// Retrieve assigned PRs
 	assignedPRs, err := fetchPRs(client, ctx, username, "assigned", dateRange)
 	if err != nil {
 		return nil, err
 	}
 	for i := range assignedPRs {
 		assignedPRs[i].Involvement = "assigned"
-		// PR詳細情報の取得（本文とコメント）
+		// Retrieve PR details (body and comments)
 		err = fetchPRDetails(client, ctx, &assignedPRs[i])
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "PRの詳細取得に失敗しました（ID: %d）: %v\n", assignedPRs[i].Number, err)
+			fmt.Fprintf(os.Stderr, "Failed to retrieve details for PR (ID: %d): %v\n", assignedPRs[i].Number, err)
 		}
 	}
 	allItems = append(allItems, assignedPRs...)
 
-	// レビューしたPRの取得
+	// Retrieve reviewed PRs
 	reviewedPRs, err := fetchPRs(client, ctx, username, "reviewed", dateRange)
 	if err != nil {
 		return nil, err
 	}
 	for i := range reviewedPRs {
 		reviewedPRs[i].Involvement = "reviewed"
-		// PR詳細情報の取得（本文とコメント）
+		// Retrieve PR details (body and comments)
 		err = fetchPRDetails(client, ctx, &reviewedPRs[i])
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "PRの詳細取得に失敗しました（ID: %d）: %v\n", reviewedPRs[i].Number, err)
+			fmt.Fprintf(os.Stderr, "Failed to retrieve details for PR (ID: %d): %v\n", reviewedPRs[i].Number, err)
 		}
 	}
 	allItems = append(allItems, reviewedPRs...)
@@ -249,12 +249,12 @@ func fetchAllItems(client *api.RESTClient, username string, dateRange DateRange)
 	return allItems, nil
 }
 
-// GitHub APIからIssueを取得
+// Retrieve Issues from the GitHub API
 func fetchIssues(client *api.RESTClient, ctx context.Context, username, involvement string, dateRange DateRange) ([]Item, error) {
-	// 日付範囲でフィルタリングするためのクエリパラメータ
+	// Query parameters for filtering by date range
 	startDateStr := dateRange.StartDate.Format("2006-01-02")
 	
-	// 関連ごとに適切なクエリパラメータを構築
+	// Construct appropriate query parameters based on involvement
 	var query string
 	switch involvement {
 	case "created":
@@ -299,7 +299,7 @@ func fetchIssues(client *api.RESTClient, ctx context.Context, username, involvem
 		
 		pageQuery := fmt.Sprintf("%s&page=%d", query, page)
 		
-		// リトライ機能を追加
+		// Add retry functionality
 		var err error
 		maxRetries := 3
 		for retryCount := 0; retryCount < maxRetries; retryCount++ {
@@ -308,27 +308,27 @@ func fetchIssues(client *api.RESTClient, ctx context.Context, username, involvem
 				break
 			}
 			
-			// リトライ前に待機
+			// Wait before retrying
 			time.Sleep(2 * time.Second)
 		}
 		
 		if err != nil {
-			return nil, fmt.Errorf("Issueの取得に失敗しました: %w", err)
+			return nil, fmt.Errorf("Failed to retrieve Issues: %w", err)
 		}
 		
-		// レスポンスが空の場合は終了
+		// Exit if the response is empty
 		if len(response.Items) == 0 {
 			hasMore = false
 			continue
 		}
 
 		for _, issue := range response.Items {
-			// 日付範囲外のものはスキップ
+			// Skip items outside the date range
 			if issue.CreatedAt.After(dateRange.EndDate) || issue.CreatedAt.Before(dateRange.StartDate) {
 				continue
 			}
 
-			// リポジトリ名の抽出
+			// Extract repository name
 			repoURL := issue.RepositoryURL
 			repoParts := strings.Split(repoURL, "/")
 			repoName := ""
@@ -336,13 +336,13 @@ func fetchIssues(client *api.RESTClient, ctx context.Context, username, involvem
 				repoName = fmt.Sprintf("%s/%s", repoParts[len(repoParts)-2], repoParts[len(repoParts)-1])
 			}
 
-			// アサイン先の抽出
+			// Extract assignees
 			assignees := make([]string, len(issue.Assignees))
 			for i, a := range issue.Assignees {
 				assignees[i] = a.Login
 			}
 
-			// ラベルの抽出
+			// Extract labels
 			labels := make([]string, len(issue.Labels))
 			for i, l := range issue.Labels {
 				labels[i] = l.Name
@@ -364,11 +364,11 @@ func fetchIssues(client *api.RESTClient, ctx context.Context, username, involvem
 			items = append(items, item)
 		}
 
-		// Rate Limitに配慮
+		// Consider Rate Limit
 		time.Sleep(1 * time.Second)
 		page++
 		
-		// 一定数以上取得したら終了（オプション）
+		// Exit if a certain number has been retrieved (optional)
 		if page > 10 {
 			hasMore = false
 		}
@@ -377,9 +377,9 @@ func fetchIssues(client *api.RESTClient, ctx context.Context, username, involvem
 	return items, nil
 }
 
-// GitHub APIからPRを取得
+// Retrieve PRs from the GitHub API
 func fetchPRs(client *api.RESTClient, ctx context.Context, username, involvement string, dateRange DateRange) ([]Item, error) {
-	// 日付範囲でフィルタリングするためのクエリパラメータ
+	// Query parameters for filtering by date range
 	startDateStr := dateRange.StartDate.Format("2006-01-02")
 	
 	query := fmt.Sprintf("search/issues?q=is:pr+%s:%s+created:>=%s&per_page=100", 
@@ -416,7 +416,7 @@ func fetchPRs(client *api.RESTClient, ctx context.Context, username, involvement
 		
 		pageQuery := fmt.Sprintf("%s&page=%d", query, page)
 		
-		// リトライ機能を追加
+		// Add retry functionality
 		var err error
 		maxRetries := 3
 		for retryCount := 0; retryCount < maxRetries; retryCount++ {
@@ -425,27 +425,27 @@ func fetchPRs(client *api.RESTClient, ctx context.Context, username, involvement
 				break
 			}
 			
-			// リトライ前に待機
+			// Wait before retrying
 			time.Sleep(2 * time.Second)
 		}
 		
 		if err != nil {
-			return nil, fmt.Errorf("PRの取得に失敗しました: %w", err)
+			return nil, fmt.Errorf("Failed to retrieve PRs: %w", err)
 		}
 		
-		// レスポンスが空の場合は終了
+		// Exit if the response is empty
 		if len(response.Items) == 0 {
 			hasMore = false
 			continue
 		}
 
 		for _, pr := range response.Items {
-			// 日付範囲外のものはスキップ
+			// Skip items outside the date range
 			if pr.CreatedAt.After(dateRange.EndDate) || pr.CreatedAt.Before(dateRange.StartDate) {
 				continue
 			}
 
-			// リポジトリ名の抽出
+			// Extract repository name
 			repoURL := pr.RepositoryURL
 			repoParts := strings.Split(repoURL, "/")
 			repoName := ""
@@ -453,13 +453,13 @@ func fetchPRs(client *api.RESTClient, ctx context.Context, username, involvement
 				repoName = fmt.Sprintf("%s/%s", repoParts[len(repoParts)-2], repoParts[len(repoParts)-1])
 			}
 
-			// アサイン先の抽出
+			// Extract assignees
 			assignees := make([]string, len(pr.Assignees))
 			for i, a := range pr.Assignees {
 				assignees[i] = a.Login
 			}
 
-			// ラベルの抽出
+			// Extract labels
 			labels := make([]string, len(pr.Labels))
 			for i, l := range pr.Labels {
 				labels[i] = l.Name
@@ -481,11 +481,11 @@ func fetchPRs(client *api.RESTClient, ctx context.Context, username, involvement
 			items = append(items, item)
 		}
 
-		// Rate Limitに配慮
+		// Consider Rate Limit
 		time.Sleep(1 * time.Second)
 		page++
 		
-		// 一定数以上取得したら終了（オプション）
+		// Exit if a certain number has been retrieved (optional)
 		if page > 10 {
 			hasMore = false
 		}
@@ -494,7 +494,7 @@ func fetchPRs(client *api.RESTClient, ctx context.Context, username, involvement
 	return items, nil
 }
 
-// 関与タイプに応じたクエリパラメータを返す
+// Return query parameters based on involvement type
 func getInvolvementQuery(involvement string) string {
 	switch involvement {
 	case "created":
@@ -510,7 +510,7 @@ func getInvolvementQuery(involvement string) string {
 	}
 }
 
-// 結果をファイルに書き込む
+// Write results to a file
 func writeResultsToFile(items []Item, filename, username string, dateRange DateRange, format string) error {
 	file, err := os.Create(filename)
 	if err != nil {
@@ -518,18 +518,18 @@ func writeResultsToFile(items []Item, filename, username string, dateRange DateR
 	}
 	defer file.Close()
 
-	// フォーマットに応じて出力
+	// Output based on format
 	switch format {
 	case "json":
 		return writeJSONFormat(file, items)
 	case "md":
 		return writeMarkdownFormat(file, items, username, dateRange)
 	default:
-		return fmt.Errorf("未対応の出力フォーマット: %s", format)
+		return fmt.Errorf("Unsupported output format: %s", format)
 	}
 }
 
-// JSON形式で出力
+// Output in JSON format
 func writeJSONFormat(file *os.File, items []Item) error {
 	jsonData, err := json.MarshalIndent(items, "", "  ")
 	if err != nil {
@@ -539,19 +539,19 @@ func writeJSONFormat(file *os.File, items []Item) error {
 	return err
 }
 
-// マークダウン形式で出力
+// Output in Markdown format
 func writeMarkdownFormat(file *os.File, items []Item, username string, dateRange DateRange) error {
-	// ヘッダー情報
-	fmt.Fprintf(file, "# GitHub活動レポート - %s\n", username)
-	fmt.Fprintf(file, "期間: %s から %s まで\n\n", 
+	// Header information
+	fmt.Fprintf(file, "# GitHub Activity Report - %s\n", username)
+	fmt.Fprintf(file, "Period: %s to %s\n\n", 
 		dateRange.StartDate.Format("2006-01-02"), 
 		dateRange.EndDate.Format("2006-01-02"))
 
-	// サマリーを作成
-	fmt.Fprintf(file, "## サマリー\n")
-	fmt.Fprintf(file, "- 合計アイテム数: %d\n", len(items))
+	// Create summary
+	fmt.Fprintf(file, "## Summary\n")
+	fmt.Fprintf(file, "- Total items: %d\n", len(items))
 
-	// タイプ別カウント
+	// Count by type
 	prCount := 0
 	issueCount := 0
 	for _, item := range items {
@@ -561,10 +561,10 @@ func writeMarkdownFormat(file *os.File, items []Item, username string, dateRange
 			issueCount++
 		}
 	}
-	fmt.Fprintf(file, "- PRの数: %d\n", prCount)
-	fmt.Fprintf(file, "- Issueの数: %d\n\n", issueCount)
+	fmt.Fprintf(file, "- Number of PRs: %d\n", prCount)
+	fmt.Fprintf(file, "- Number of Issues: %d\n\n", issueCount)
 
-	// 関与タイプ別カウント
+	// Count by involvement type
 	created := 0
 	assigned := 0
 	commented := 0
@@ -581,17 +581,17 @@ func writeMarkdownFormat(file *os.File, items []Item, username string, dateRange
 			reviewed++
 		}
 	}
-	fmt.Fprintf(file, "- 作成したアイテム: %d\n", created)
-	fmt.Fprintf(file, "- アサインされたアイテム: %d\n", assigned)
-	fmt.Fprintf(file, "- コメントしたアイテム: %d\n", commented)
-	fmt.Fprintf(file, "- レビューしたアイテム: %d\n\n", reviewed)
+	fmt.Fprintf(file, "- Created items: %d\n", created)
+	fmt.Fprintf(file, "- Assigned items: %d\n", assigned)
+	fmt.Fprintf(file, "- Commented items: %d\n", commented)
+	fmt.Fprintf(file, "- Reviewed items: %d\n\n", reviewed)
 
-	// アイテムの詳細リスト
-	fmt.Fprintf(file, "## アイテム詳細\n\n")
+	// Detailed list of items
+	fmt.Fprintf(file, "## Item Details\n\n")
 	
-	// まず作成したもの
+	// First, created items
 	if created > 0 {
-		fmt.Fprintf(file, "### 作成したアイテム\n\n")
+		fmt.Fprintf(file, "### Created Items\n\n")
 		for _, item := range items {
 			if item.Involvement == "created" {
 				writeItemDetails(file, item)
@@ -599,9 +599,9 @@ func writeMarkdownFormat(file *os.File, items []Item, username string, dateRange
 		}
 	}
 	
-	// アサインされたもの
+	// Assigned items
 	if assigned > 0 {
-		fmt.Fprintf(file, "### アサインされたアイテム\n\n")
+		fmt.Fprintf(file, "### Assigned Items\n\n")
 		for _, item := range items {
 			if item.Involvement == "assigned" {
 				writeItemDetails(file, item)
@@ -609,9 +609,9 @@ func writeMarkdownFormat(file *os.File, items []Item, username string, dateRange
 		}
 	}
 	
-	// コメントしたもの
+	// Commented items
 	if commented > 0 {
-		fmt.Fprintf(file, "### コメントしたアイテム\n\n")
+		fmt.Fprintf(file, "### Commented Items\n\n")
 		for _, item := range items {
 			if item.Involvement == "commented" {
 				writeItemDetails(file, item)
@@ -619,9 +619,9 @@ func writeMarkdownFormat(file *os.File, items []Item, username string, dateRange
 		}
 	}
 	
-	// レビューしたもの
+	// Reviewed items
 	if reviewed > 0 {
-		fmt.Fprintf(file, "### レビューしたアイテム\n\n")
+		fmt.Fprintf(file, "### Reviewed Items\n\n")
 		for _, item := range items {
 			if item.Involvement == "reviewed" {
 				writeItemDetails(file, item)
@@ -632,41 +632,41 @@ func writeMarkdownFormat(file *os.File, items []Item, username string, dateRange
 	return nil
 }
 
-// アイテムの詳細を書き込む
+// Write item details to the file
 func writeItemDetails(file *os.File, item Item) {
 	fmt.Fprintf(file, "- [%s #%d] %s\n", item.Type, item.Number, item.Title)
 	fmt.Fprintf(file, "  - URL: %s\n", item.URL)
-	fmt.Fprintf(file, "  - リポジトリ: %s\n", item.Repository)
-	fmt.Fprintf(file, "  - 状態: %s\n", item.State)
-	fmt.Fprintf(file, "  - 作成日: %s\n", item.CreatedAt.Format("2006-01-02"))
-	fmt.Fprintf(file, "  - 更新日: %s\n", item.UpdatedAt.Format("2006-01-02"))
+	fmt.Fprintf(file, "  - Repository: %s\n", item.Repository)
+	fmt.Fprintf(file, "  - State: %s\n", item.State)
+	fmt.Fprintf(file, "  - Created on: %s\n", item.CreatedAt.Format("2006-01-02"))
+	fmt.Fprintf(file, "  - Updated on: %s\n", item.UpdatedAt.Format("2006-01-02"))
 	
 	if len(item.Assignees) > 0 {
-		fmt.Fprintf(file, "  - アサイン先: %s\n", strings.Join(item.Assignees, ", "))
+		fmt.Fprintf(file, "  - Assignees: %s\n", strings.Join(item.Assignees, ", "))
 	}
 	
 	if len(item.Labels) > 0 {
-		fmt.Fprintf(file, "  - ラベル: %s\n", strings.Join(item.Labels, ", "))
+		fmt.Fprintf(file, "  - Labels: %s\n", strings.Join(item.Labels, ", "))
 	}
 
-	// 本文も出力
+	// Output the body
 	if item.Body != "" {
-		// 本文が長い場合は適切に省略
+		// If the body is long, truncate it appropriately
 		body := item.Body
 		if len(body) > 300 {
 			body = body[:300] + "..."
 		}
-		fmt.Fprintf(file, "  - 本文:\n    %s\n", strings.ReplaceAll(body, "\n", "\n    "))
+		fmt.Fprintf(file, "  - Body:\n    %s\n", strings.ReplaceAll(body, "\n", "\n    "))
 	}
 	
-	// コメントの出力
+	// Output comments
 	if len(item.Comments) > 0 {
-		fmt.Fprintf(file, "  - コメント (%d件):\n", len(item.Comments))
+		fmt.Fprintf(file, "  - Comments (%d):\n", len(item.Comments))
 		
-		// コメント数が多い場合は制限
+		// Limit the number of comments displayed
 		maxComments := 5
 		if len(item.Comments) > maxComments {
-			fmt.Fprintf(file, "    (最初の%d件のみ表示)\n", maxComments)
+			fmt.Fprintf(file, "    (Only the first %d shown)\n", maxComments)
 		}
 		
 		count := 0
@@ -675,7 +675,7 @@ func writeItemDetails(file *os.File, item Item) {
 				break
 			}
 			
-			// コメント本文が長い場合は適切に省略
+			// If the comment body is long, truncate it appropriately
 			body := comment.Body
 			if len(body) > 200 {
 				body = body[:200] + "..."
@@ -693,22 +693,22 @@ func writeItemDetails(file *os.File, item Item) {
 	fmt.Fprintln(file, "")
 }
 
-// Issueの詳細（本文とコメント）を取得する
+// Retrieve details (body and comments) of an Issue
 func fetchIssueDetails(client *api.RESTClient, ctx context.Context, item *Item) error {
-	// リポジトリ名とIssue番号を抽出
+	// Extract repository name and Issue number
 	repoPath := getRepoPathFromURL(item.Repository)
 	if repoPath == "" {
-		return fmt.Errorf("リポジトリパスの抽出に失敗しました: %s", item.Repository)
+		return fmt.Errorf("Failed to extract repository path: %s", item.Repository)
 	}
 	
-	// Issueの詳細情報を取得
+	// Retrieve Issue details
 	var issueDetail struct {
 		Body string `json:"body"`
 	}
 	
 	issueURL := fmt.Sprintf("repos/%s/issues/%d", repoPath, item.Number)
 	
-	// リトライ機能を使用
+	// Use retry functionality
 	var err error
 	maxRetries := 3
 	for retryCount := 0; retryCount < maxRetries; retryCount++ {
@@ -717,36 +717,36 @@ func fetchIssueDetails(client *api.RESTClient, ctx context.Context, item *Item) 
 			break
 		}
 		
-		// リトライ前に待機
+		// Wait before retrying
 		time.Sleep(2 * time.Second)
 	}
 	
 	if err != nil {
-		return fmt.Errorf("Issueの詳細取得に失敗しました: %w", err)
+		return fmt.Errorf("Failed to retrieve Issue details: %w", err)
 	}
 	
 	item.Body = issueDetail.Body
 	
-	// コメントを取得
+	// Retrieve comments
 	return fetchComments(client, ctx, item, fmt.Sprintf("repos/%s/issues/%d/comments", repoPath, item.Number))
 }
 
-// PRの詳細（本文とコメント）を取得する
+// Retrieve details (body and comments) of a PR
 func fetchPRDetails(client *api.RESTClient, ctx context.Context, item *Item) error {
-	// リポジトリ名とPR番号を抽出
+	// Extract repository name and PR number
 	repoPath := getRepoPathFromURL(item.Repository)
 	if repoPath == "" {
-		return fmt.Errorf("リポジトリパスの抽出に失敗しました: %s", item.Repository)
+		return fmt.Errorf("Failed to extract repository path: %s", item.Repository)
 	}
 	
-	// PRの詳細情報を取得（PRはIssueのエンドポイントでも取得可能）
+	// Retrieve PR details (PR can also be retrieved from the Issue endpoint)
 	var prDetail struct {
 		Body string `json:"body"`
 	}
 	
 	prURL := fmt.Sprintf("repos/%s/pulls/%d", repoPath, item.Number)
 	
-	// リトライ機能を使用
+	// Use retry functionality
 	var err error
 	maxRetries := 3
 	for retryCount := 0; retryCount < maxRetries; retryCount++ {
@@ -755,29 +755,29 @@ func fetchPRDetails(client *api.RESTClient, ctx context.Context, item *Item) err
 			break
 		}
 		
-		// リトライ前に待機
+		// Wait before retrying
 		time.Sleep(2 * time.Second)
 	}
 	
 	if err != nil {
-		return fmt.Errorf("PRの詳細取得に失敗しました: %w", err)
+		return fmt.Errorf("Failed to retrieve PR details: %w", err)
 	}
 	
 	item.Body = prDetail.Body
 	
-	// コメントを取得
+	// Retrieve comments
 	issueCommentsURL := fmt.Sprintf("repos/%s/issues/%d/comments", repoPath, item.Number)
 	err = fetchComments(client, ctx, item, issueCommentsURL)
 	if err != nil {
 		return err
 	}
 	
-	// PRレビューコメントも取得
+	// Also retrieve PR review comments
 	reviewCommentsURL := fmt.Sprintf("repos/%s/pulls/%d/comments", repoPath, item.Number)
 	return fetchReviewComments(client, ctx, item, reviewCommentsURL)
 }
 
-// コメントを取得する共通関数
+// Common function to retrieve comments
 func fetchComments(client *api.RESTClient, ctx context.Context, item *Item, commentsURL string) error {
 	var comments []struct {
 		User struct {
@@ -788,7 +788,7 @@ func fetchComments(client *api.RESTClient, ctx context.Context, item *Item, comm
 		UpdatedAt time.Time `json:"updated_at"`
 	}
 	
-	// リトライ機能を使用
+	// Use retry functionality
 	var err error
 	maxRetries := 3
 	for retryCount := 0; retryCount < maxRetries; retryCount++ {
@@ -797,15 +797,15 @@ func fetchComments(client *api.RESTClient, ctx context.Context, item *Item, comm
 			break
 		}
 		
-		// リトライ前に待機
+		// Wait before retrying
 		time.Sleep(2 * time.Second)
 	}
 	
 	if err != nil {
-		return fmt.Errorf("コメントの取得に失敗しました: %w", err)
+		return fmt.Errorf("Failed to retrieve comments: %w", err)
 	}
 	
-	// コメントをItem構造体に追加
+	// Add comments to the Item struct
 	for _, c := range comments {
 		item.Comments = append(item.Comments, Comment{
 			Author:    c.User.Login,
@@ -818,7 +818,7 @@ func fetchComments(client *api.RESTClient, ctx context.Context, item *Item, comm
 	return nil
 }
 
-// PRレビューコメントを取得する関数
+// Function to retrieve PR review comments
 func fetchReviewComments(client *api.RESTClient, ctx context.Context, item *Item, reviewCommentsURL string) error {
 	var reviewComments []struct {
 		User struct {
@@ -829,7 +829,7 @@ func fetchReviewComments(client *api.RESTClient, ctx context.Context, item *Item
 		UpdatedAt time.Time `json:"updated_at"`
 	}
 	
-	// リトライ機能を使用
+	// Use retry functionality
 	var err error
 	maxRetries := 3
 	for retryCount := 0; retryCount < maxRetries; retryCount++ {
@@ -838,15 +838,15 @@ func fetchReviewComments(client *api.RESTClient, ctx context.Context, item *Item
 			break
 		}
 		
-		// リトライ前に待機
+		// Wait before retrying
 		time.Sleep(2 * time.Second)
 	}
 	
 	if err != nil {
-		return fmt.Errorf("レビューコメントの取得に失敗しました: %w", err)
+		return fmt.Errorf("Failed to retrieve review comments: %w", err)
 	}
 	
-	// レビューコメントをItem構造体に追加
+	// Add review comments to the Item struct
 	for _, rc := range reviewComments {
 		item.Comments = append(item.Comments, Comment{
 			Author:    rc.User.Login,
@@ -859,11 +859,11 @@ func fetchReviewComments(client *api.RESTClient, ctx context.Context, item *Item
 	return nil
 }
 
-// リポジトリURLからパスを抽出する関数
+// Function to extract the path from a repository URL
 func getRepoPathFromURL(repoURL string) string {
-	// まずリポジトリURL形式を確認
+	// First, check the repository URL format
 	if strings.HasPrefix(repoURL, "http") {
-		// URLからパスを抽出（例: https://github.com/owner/repo → owner/repo）
+		// Extract the path from the URL (e.g., https://github.com/owner/repo → owner/repo)
 		u, err := url.Parse(repoURL)
 		if err != nil {
 			return ""
@@ -871,19 +871,19 @@ func getRepoPathFromURL(repoURL string) string {
 		path := strings.TrimPrefix(u.Path, "/")
 		return path
 	} else if strings.Contains(repoURL, "/") {
-		// すでにowner/repo形式の場合はそのまま返す
+		// If it's already in owner/repo format, return it as is
 		return repoURL
 	}
 	
 	return ""
 }
 
-// 特定ユーザーのコメントを除外する関数
+// Function to filter out comments from specific users
 func filterIgnoredUserComments(items []Item, ignoreUsers []string) {
 	for i := range items {
 		var filteredComments []Comment
 		for _, comment := range items[i].Comments {
-			// ユーザーがignoreUsersリストにいなければコメントを残す
+			// Keep the comment if the user is not in the ignoreUsers list
 			shouldKeep := true
 			for _, ignoreUser := range ignoreUsers {
 				if comment.Author == ignoreUser {
