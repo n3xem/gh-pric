@@ -1,25 +1,571 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"flag"
 	"fmt"
+	"os"
+	"strings"
+	"time"
 
 	"github.com/cli/go-gh/v2/pkg/api"
 )
 
+// 期間の設定用構造体
+type DateRange struct {
+	StartDate time.Time
+	EndDate   time.Time
+}
+
+// PRとIssueの情報を格納する構造体
+type Item struct {
+	Type        string    // "PR" または "Issue"
+	Number      int       // PR番号またはIssue番号
+	Title       string    // タイトル
+	URL         string    // URL
+	State       string    // 状態（open, closed, merged）
+	CreatedAt   time.Time // 作成日時
+	UpdatedAt   time.Time // 更新日時
+	Author      string    // 作成者
+	Assignees   []string  // アサイン先
+	Labels      []string  // ラベル
+	Repository  string    // リポジトリ名
+	Involvement string    // 関与タイプ（created, assigned, commented）
+}
+
 func main() {
-	fmt.Println("hi world, this is the gh-pric extension!")
+	// コマンドライン引数の解析
+	var startDateStr, endDateStr, outputFile string
+	var defaultEndDate = time.Now().Format("2006-01-02")
+	var defaultStartDate = time.Now().AddDate(0, -1, 0).Format("2006-01-02")
+
+	flag.StringVar(&startDateStr, "from", defaultStartDate, "開始日 (YYYY-MM-DD形式)")
+	flag.StringVar(&endDateStr, "to", defaultEndDate, "終了日 (YYYY-MM-DD形式)")
+	flag.StringVar(&outputFile, "output", "github-activity.txt", "出力ファイル名")
+	flag.Parse()
+
+	// 日付のパース
+	dateRange, err := parseDateRange(startDateStr, endDateStr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "日付の解析に失敗しました: %v\n", err)
+		os.Exit(1)
+	}
+
+	// GitHubクライアントの初期化
 	client, err := api.DefaultRESTClient()
 	if err != nil {
-		fmt.Println(err)
-		return
+		fmt.Fprintf(os.Stderr, "GitHubクライアントの初期化に失敗しました: %v\n", err)
+		os.Exit(1)
 	}
-	response := struct {Login string}{}
-	err = client.Get("user", &response)
+
+	// ユーザー情報の取得
+	userInfo := struct {
+		Login string `json:"login"`
+	}{}
+	err = client.Get("user", &userInfo)
 	if err != nil {
-		fmt.Println(err)
-		return
+		fmt.Fprintf(os.Stderr, "ユーザー情報の取得に失敗しました: %v\n", err)
+		os.Exit(1)
 	}
-	fmt.Printf("running as %s\n", response.Login)
+
+	username := userInfo.Login
+	fmt.Printf("ユーザー '%s' のGitHub活動を取得しています...\n", username)
+	fmt.Printf("期間: %s から %s まで\n", dateRange.StartDate.Format("2006-01-02"), dateRange.EndDate.Format("2006-01-02"))
+
+	// データ取得
+	items, err := fetchAllItems(client, username, dateRange)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "データの取得に失敗しました: %v\n", err)
+		os.Exit(1)
+	}
+
+	// 結果の出力
+	err = writeResultsToFile(items, outputFile, username, dateRange)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ファイルへの書き込みに失敗しました: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("結果を %s に保存しました\n", outputFile)
+}
+
+// 日付文字列をパースして期間を返す
+func parseDateRange(startStr, endStr string) (DateRange, error) {
+	startDate, err := time.Parse("2006-01-02", startStr)
+	if err != nil {
+		return DateRange{}, fmt.Errorf("開始日の解析に失敗しました: %w", err)
+	}
+
+	endDate, err := time.Parse("2006-01-02", endStr)
+	if err != nil {
+		return DateRange{}, fmt.Errorf("終了日の解析に失敗しました: %w", err)
+	}
+
+	// 終了日は23:59:59に設定
+	endDate = endDate.Add(24*time.Hour - time.Second)
+
+	if endDate.Before(startDate) {
+		return DateRange{}, fmt.Errorf("終了日は開始日より後である必要があります")
+	}
+
+	return DateRange{
+		StartDate: startDate,
+		EndDate:   endDate,
+	}, nil
+}
+
+// GitHub APIからユーザーに関連するPRとIssueを取得
+func fetchAllItems(client *api.RESTClient, username string, dateRange DateRange) ([]Item, error) {
+	var allItems []Item
+	ctx := context.Background()
+
+	// 作成したIssueの取得
+	createdIssues, err := fetchIssues(client, ctx, username, "created", dateRange)
+	if err != nil {
+		return nil, err
+	}
+	for i := range createdIssues {
+		createdIssues[i].Involvement = "created"
+	}
+	allItems = append(allItems, createdIssues...)
+
+	// アサインされたIssueの取得
+	assignedIssues, err := fetchIssues(client, ctx, username, "assigned", dateRange)
+	if err != nil {
+		return nil, err
+	}
+	for i := range assignedIssues {
+		assignedIssues[i].Involvement = "assigned"
+	}
+	allItems = append(allItems, assignedIssues...)
+
+	// コメントしたIssueの取得
+	commentedIssues, err := fetchIssues(client, ctx, username, "commented", dateRange)
+	if err != nil {
+		return nil, err
+	}
+	for i := range commentedIssues {
+		commentedIssues[i].Involvement = "commented"
+	}
+	allItems = append(allItems, commentedIssues...)
+
+	// 作成したPRの取得
+	createdPRs, err := fetchPRs(client, ctx, username, "created", dateRange)
+	if err != nil {
+		return nil, err
+	}
+	for i := range createdPRs {
+		createdPRs[i].Involvement = "created"
+	}
+	allItems = append(allItems, createdPRs...)
+
+	// レビューしたPRの取得
+	reviewedPRs, err := fetchPRs(client, ctx, username, "reviewed", dateRange)
+	if err != nil {
+		return nil, err
+	}
+	for i := range reviewedPRs {
+		reviewedPRs[i].Involvement = "reviewed"
+	}
+	allItems = append(allItems, reviewedPRs...)
+
+	return allItems, nil
+}
+
+// GitHub APIからIssueを取得
+func fetchIssues(client *api.RESTClient, ctx context.Context, username, involvement string, dateRange DateRange) ([]Item, error) {
+	// 日付範囲でフィルタリングするためのクエリパラメータ
+	startDateStr := dateRange.StartDate.Format("2006-01-02")
+	
+	// 関連ごとに適切なクエリパラメータを構築
+	var query string
+	switch involvement {
+	case "created":
+		query = fmt.Sprintf("search/issues?q=is:issue+author:%s+created:>=%s&per_page=100", 
+			username, startDateStr)
+	case "assigned":
+		query = fmt.Sprintf("search/issues?q=is:issue+assignee:%s+created:>=%s&per_page=100", 
+			username, startDateStr)
+	case "commented":
+		query = fmt.Sprintf("search/issues?q=is:issue+commenter:%s+created:>=%s&per_page=100", 
+			username, startDateStr)
+	default:
+		query = fmt.Sprintf("search/issues?q=is:issue+involves:%s+created:>=%s&per_page=100", 
+			username, startDateStr)
+	}
+	
+	items := []Item{}
+	page := 1
+	hasMore := true
+
+	for hasMore {
+		var response struct {
+			Items []struct {
+				URL           string    `json:"html_url"`
+				Number        int       `json:"number"`
+				Title         string    `json:"title"`
+				State         string    `json:"state"`
+				CreatedAt     time.Time `json:"created_at"`
+				UpdatedAt     time.Time `json:"updated_at"`
+				RepositoryURL string    `json:"repository_url"`
+				User          struct {
+					Login string `json:"login"`
+				} `json:"user"`
+				Assignees []struct {
+					Login string `json:"login"`
+				} `json:"assignees"`
+				Labels []struct {
+					Name string `json:"name"`
+				} `json:"labels"`
+			} `json:"items"`
+		}
+		
+		pageQuery := fmt.Sprintf("%s&page=%d", query, page)
+		
+		// リトライ機能を追加
+		var err error
+		maxRetries := 3
+		for retryCount := 0; retryCount < maxRetries; retryCount++ {
+			err = client.Get(pageQuery, &response)
+			if err == nil {
+				break
+			}
+			
+			fmt.Fprintf(os.Stderr, "API呼び出しに失敗しました (リトライ %d/%d): %v\n", 
+				retryCount+1, maxRetries, err)
+			
+			// リトライ前に待機
+			time.Sleep(2 * time.Second)
+		}
+		
+		if err != nil {
+			return nil, fmt.Errorf("Issueの取得に失敗しました: %w", err)
+		}
+		
+		// レスポンスが空の場合は終了
+		if len(response.Items) == 0 {
+			hasMore = false
+			continue
+		}
+
+		for _, issue := range response.Items {
+			// 日付範囲外のものはスキップ
+			if issue.CreatedAt.After(dateRange.EndDate) || issue.CreatedAt.Before(dateRange.StartDate) {
+				continue
+			}
+
+			// リポジトリ名の抽出
+			repoURL := issue.RepositoryURL
+			repoParts := strings.Split(repoURL, "/")
+			repoName := ""
+			if len(repoParts) >= 2 {
+				repoName = fmt.Sprintf("%s/%s", repoParts[len(repoParts)-2], repoParts[len(repoParts)-1])
+			}
+
+			// アサイン先の抽出
+			assignees := make([]string, len(issue.Assignees))
+			for i, a := range issue.Assignees {
+				assignees[i] = a.Login
+			}
+
+			// ラベルの抽出
+			labels := make([]string, len(issue.Labels))
+			for i, l := range issue.Labels {
+				labels[i] = l.Name
+			}
+
+			item := Item{
+				Type:       "Issue",
+				Number:     issue.Number,
+				Title:      issue.Title,
+				URL:        issue.URL,
+				State:      issue.State,
+				CreatedAt:  issue.CreatedAt,
+				UpdatedAt:  issue.UpdatedAt,
+				Author:     issue.User.Login,
+				Assignees:  assignees,
+				Labels:     labels,
+				Repository: repoName,
+			}
+			items = append(items, item)
+		}
+
+		// Rate Limitに配慮
+		time.Sleep(1 * time.Second)
+		page++
+		
+		// 一定数以上取得したら終了（オプション）
+		if page > 10 {
+			hasMore = false
+		}
+	}
+
+	return items, nil
+}
+
+// GitHub APIからPRを取得
+func fetchPRs(client *api.RESTClient, ctx context.Context, username, involvement string, dateRange DateRange) ([]Item, error) {
+	// 日付範囲でフィルタリングするためのクエリパラメータ
+	startDateStr := dateRange.StartDate.Format("2006-01-02")
+	
+	query := fmt.Sprintf("search/issues?q=is:pr+%s:%s+created:>=%s&per_page=100", 
+		getInvolvementQuery(involvement), username, startDateStr)
+	
+	items := []Item{}
+	page := 1
+	hasMore := true
+
+	for hasMore {
+		var response struct {
+			Items []struct {
+				URL           string    `json:"html_url"`
+				Number        int       `json:"number"`
+				Title         string    `json:"title"`
+				State         string    `json:"state"`
+				CreatedAt     time.Time `json:"created_at"`
+				UpdatedAt     time.Time `json:"updated_at"`
+				RepositoryURL string    `json:"repository_url"`
+				User          struct {
+					Login string `json:"login"`
+				} `json:"user"`
+				Assignees []struct {
+					Login string `json:"login"`
+				} `json:"assignees"`
+				Labels []struct {
+					Name string `json:"name"`
+				} `json:"labels"`
+				PullRequest struct {
+					URL string `json:"url"`
+				} `json:"pull_request"`
+			} `json:"items"`
+		}
+		
+		pageQuery := fmt.Sprintf("%s&page=%d", query, page)
+		
+		// リトライ機能を追加
+		var err error
+		maxRetries := 3
+		for retryCount := 0; retryCount < maxRetries; retryCount++ {
+			err = client.Get(pageQuery, &response)
+			if err == nil {
+				break
+			}
+			
+			fmt.Fprintf(os.Stderr, "API呼び出しに失敗しました (リトライ %d/%d): %v\n", 
+				retryCount+1, maxRetries, err)
+			
+			// リトライ前に待機
+			time.Sleep(2 * time.Second)
+		}
+		
+		if err != nil {
+			return nil, fmt.Errorf("PRの取得に失敗しました: %w", err)
+		}
+		
+		// レスポンスが空の場合は終了
+		if len(response.Items) == 0 {
+			hasMore = false
+			continue
+		}
+
+		for _, pr := range response.Items {
+			// 日付範囲外のものはスキップ
+			if pr.CreatedAt.After(dateRange.EndDate) || pr.CreatedAt.Before(dateRange.StartDate) {
+				continue
+			}
+
+			// リポジトリ名の抽出
+			repoURL := pr.RepositoryURL
+			repoParts := strings.Split(repoURL, "/")
+			repoName := ""
+			if len(repoParts) >= 2 {
+				repoName = fmt.Sprintf("%s/%s", repoParts[len(repoParts)-2], repoParts[len(repoParts)-1])
+			}
+
+			// アサイン先の抽出
+			assignees := make([]string, len(pr.Assignees))
+			for i, a := range pr.Assignees {
+				assignees[i] = a.Login
+			}
+
+			// ラベルの抽出
+			labels := make([]string, len(pr.Labels))
+			for i, l := range pr.Labels {
+				labels[i] = l.Name
+			}
+
+			item := Item{
+				Type:       "PR",
+				Number:     pr.Number,
+				Title:      pr.Title,
+				URL:        pr.URL,
+				State:      pr.State,
+				CreatedAt:  pr.CreatedAt,
+				UpdatedAt:  pr.UpdatedAt,
+				Author:     pr.User.Login,
+				Assignees:  assignees,
+				Labels:     labels,
+				Repository: repoName,
+			}
+			items = append(items, item)
+		}
+
+		// Rate Limitに配慮
+		time.Sleep(1 * time.Second)
+		page++
+		
+		// 一定数以上取得したら終了（オプション）
+		if page > 10 {
+			hasMore = false
+		}
+	}
+
+	return items, nil
+}
+
+// 関与タイプに応じたクエリパラメータを返す
+func getInvolvementQuery(involvement string) string {
+	switch involvement {
+	case "created":
+		return "author"
+	case "assigned":
+		return "assignee"
+	case "reviewed":
+		return "reviewed-by"
+	case "commented":
+		return "commenter"
+	default:
+		return "involves"
+	}
+}
+
+// 結果をファイルに書き込む
+func writeResultsToFile(items []Item, filename, username string, dateRange DateRange) error {
+	file, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// ヘッダー情報
+	fmt.Fprintf(file, "# GitHub活動レポート - %s\n", username)
+	fmt.Fprintf(file, "期間: %s から %s まで\n\n", 
+		dateRange.StartDate.Format("2006-01-02"), 
+		dateRange.EndDate.Format("2006-01-02"))
+
+	// JSON形式で詳細データを保存（必要に応じてフォーマット変更可能）
+	jsonData, err := json.MarshalIndent(items, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	// サマリーを作成
+	fmt.Fprintf(file, "## サマリー\n")
+	fmt.Fprintf(file, "- 合計アイテム数: %d\n", len(items))
+
+	// タイプ別カウント
+	prCount := 0
+	issueCount := 0
+	for _, item := range items {
+		if item.Type == "PR" {
+			prCount++
+		} else if item.Type == "Issue" {
+			issueCount++
+		}
+	}
+	fmt.Fprintf(file, "- PRの数: %d\n", prCount)
+	fmt.Fprintf(file, "- Issueの数: %d\n\n", issueCount)
+
+	// 関与タイプ別カウント
+	created := 0
+	assigned := 0
+	commented := 0
+	reviewed := 0
+	for _, item := range items {
+		switch item.Involvement {
+		case "created":
+			created++
+		case "assigned":
+			assigned++
+		case "commented":
+			commented++
+		case "reviewed":
+			reviewed++
+		}
+	}
+	fmt.Fprintf(file, "- 作成したアイテム: %d\n", created)
+	fmt.Fprintf(file, "- アサインされたアイテム: %d\n", assigned)
+	fmt.Fprintf(file, "- コメントしたアイテム: %d\n", commented)
+	fmt.Fprintf(file, "- レビューしたアイテム: %d\n\n", reviewed)
+
+	// アイテムの詳細リスト
+	fmt.Fprintf(file, "## アイテム詳細\n\n")
+	
+	// まず作成したもの
+	if created > 0 {
+		fmt.Fprintf(file, "### 作成したアイテム\n\n")
+		for _, item := range items {
+			if item.Involvement == "created" {
+				writeItemDetails(file, item)
+			}
+		}
+	}
+	
+	// アサインされたもの
+	if assigned > 0 {
+		fmt.Fprintf(file, "### アサインされたアイテム\n\n")
+		for _, item := range items {
+			if item.Involvement == "assigned" {
+				writeItemDetails(file, item)
+			}
+		}
+	}
+	
+	// コメントしたもの
+	if commented > 0 {
+		fmt.Fprintf(file, "### コメントしたアイテム\n\n")
+		for _, item := range items {
+			if item.Involvement == "commented" {
+				writeItemDetails(file, item)
+			}
+		}
+	}
+	
+	// レビューしたもの
+	if reviewed > 0 {
+		fmt.Fprintf(file, "### レビューしたアイテム\n\n")
+		for _, item := range items {
+			if item.Involvement == "reviewed" {
+				writeItemDetails(file, item)
+			}
+		}
+	}
+
+	// 生データ（必要に応じて削除可能）
+	fmt.Fprintf(file, "\n## 生データ（JSON形式）\n```json\n%s\n```\n", string(jsonData))
+
+	return nil
+}
+
+// アイテムの詳細を書き込む
+func writeItemDetails(file *os.File, item Item) {
+	fmt.Fprintf(file, "- [%s #%d] %s\n", item.Type, item.Number, item.Title)
+	fmt.Fprintf(file, "  - URL: %s\n", item.URL)
+	fmt.Fprintf(file, "  - リポジトリ: %s\n", item.Repository)
+	fmt.Fprintf(file, "  - 状態: %s\n", item.State)
+	fmt.Fprintf(file, "  - 作成日: %s\n", item.CreatedAt.Format("2006-01-02"))
+	fmt.Fprintf(file, "  - 更新日: %s\n", item.UpdatedAt.Format("2006-01-02"))
+	
+	if len(item.Assignees) > 0 {
+		fmt.Fprintf(file, "  - アサイン先: %s\n", strings.Join(item.Assignees, ", "))
+	}
+	
+	if len(item.Labels) > 0 {
+		fmt.Fprintf(file, "  - ラベル: %s\n", strings.Join(item.Labels, ", "))
+	}
+	
+	fmt.Fprintln(file, "")
 }
 
 // For more examples of using go-gh, see:
